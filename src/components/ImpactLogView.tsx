@@ -68,14 +68,14 @@ export function ImpactLogView({
   const cleanedSpots = regionSpots.filter((s) => s.status === 'cleaned');
   const totalBags = cleanedSpots.reduce((sum, s) => sum + (s.bagsCollected || 0), 0);
   const totalVotes = regionSpots.reduce((sum, s) => sum + s.upvotes, 0);
-  const totalVolunteers = events.reduce((sum, e) => sum + e.volunteers.length, 0);
+  const totalVolunteers = events.reduce((sum, e) => sum + (e.volunteerCount ?? e.volunteers.length), 0);
 
   const visibleSpots =
     statusFilter === 'all' ? regionSpots : regionSpots.filter((s) => s.status === statusFilter);
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-8 space-y-6 sm:space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
@@ -103,26 +103,26 @@ export function ImpactLogView({
         </div>
 
         {/* Summary Metrics Strip */}
-        <section className="grid grid-cols-2 lg:grid-cols-4 bg-white border border-slate-200 rounded-xl divide-y lg:divide-y-0 lg:divide-x divide-slate-200">
-          <div className="p-5">
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+          <div className="bg-white p-4 sm:p-5">
             <p className="text-xs font-medium text-slate-500">Cleared Locations</p>
             <p className="mt-1 font-display text-2xl font-bold tabular-nums text-emerald-700">
               {cleanedSpots.length}
             </p>
           </div>
-          <div className="p-5">
+          <div className="bg-white p-4 sm:p-5">
             <p className="text-xs font-medium text-slate-500">Total Bags Removed</p>
             <p className="mt-1 font-display text-2xl font-bold tabular-nums text-slate-900">
               {totalBags}
             </p>
           </div>
-          <div className="p-5">
+          <div className="bg-white p-4 sm:p-5">
             <p className="text-xs font-medium text-slate-500">Volunteer RSVPs</p>
             <p className="mt-1 font-display text-2xl font-bold tabular-nums text-slate-900">
               {totalVolunteers}
             </p>
           </div>
-          <div className="p-5">
+          <div className="bg-white p-4 sm:p-5">
             <p className="text-xs font-medium text-slate-500">Community Votes</p>
             <p className="mt-1 font-display text-2xl font-bold tabular-nums text-slate-900">
               {totalVotes}
@@ -183,18 +183,18 @@ export function ImpactLogView({
           </section>
         )}
 
-        {/* Full Ledger Table */}
+        {/* Full Ledger Table (Desktop) & Card List (Mobile) */}
         <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+          <div className="px-4 sm:px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h2 className="font-display text-base font-semibold text-slate-900">
               All Reported Sites
             </h2>
 
-            <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+            <div className="grid grid-cols-4 sm:inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg w-full sm:w-auto">
               {(
                 [
                   { id: 'all', label: 'All' },
-                  { id: 'needs_cleanup', label: 'Needs Cleanup' },
+                  { id: 'needs_cleanup', label: 'Open' },
                   { id: 'scheduled', label: 'Scheduled' },
                   { id: 'cleaned', label: 'Cleaned' },
                 ] as const
@@ -203,7 +203,7 @@ export function ImpactLogView({
                   key={tab.id}
                   type="button"
                   onClick={() => setStatusFilter(tab.id)}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                     statusFilter === tab.id
                       ? 'bg-white text-slate-900 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
@@ -215,7 +215,57 @@ export function ImpactLogView({
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          {/* Mobile Card Ledger */}
+          <div className="md:hidden divide-y divide-slate-200">
+            {visibleSpots.length === 0 ? (
+              <p className="p-6 text-center text-xs text-slate-500">
+                No reported sites match the current filter.
+              </p>
+            ) : (
+              visibleSpots.map((spot) => {
+                const loc = inferSouthAfricanLocation(spot);
+                return (
+                  <div key={spot.id} className="p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900">{spot.title}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {loc.suburb} · {loc.city} · {loc.province}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onInspectSpotOnMap(spot)}
+                        className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 shrink-0 cursor-pointer"
+                      >
+                        Map
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600 tabular-nums">
+                      <span className={getStatusTextClass(spot.status)}>
+                        {getStatusLabel(spot.status)}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span className={getPriorityTextClass(spot.priority)}>
+                        {getPriorityLabel(spot.priority)}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span>{spot.upvotes} votes</span>
+                      {typeof spot.bagsCollected === 'number' && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span>{spot.bagsCollected} bags</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left border-collapse text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">

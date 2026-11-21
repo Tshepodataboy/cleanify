@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
-import { Crosshair, Layers, LocateFixed, X } from 'lucide-react';
-import type { CleanupSpot, RouteResult } from '../types';
+import { Crosshair, Layers, LocateFixed, MapPin, Plus, Search, X } from 'lucide-react';
+import type { CleanupSpot, GeocodeResult, RouteResult } from '../types';
+import { api } from '../api/client';
+
+export interface SearchedSuburbPin {
+  lat: number;
+  lng: number;
+  label: string;
+  displayName: string;
+}
 
 interface CleanupMapProps {
   spots: CleanupSpot[];
@@ -15,6 +23,9 @@ interface CleanupMapProps {
   onCancelPickMode: () => void;
   onLocateUser: () => void;
   focusTarget: { lat: number; lng: number; zoom?: number } | null;
+  searchedSuburbPin?: SearchedSuburbPin | null;
+  onLocateSuburb?: (loc: SearchedSuburbPin | null) => void;
+  onReportAtSearchedSuburb?: (loc: SearchedSuburbPin) => void;
 }
 
 function getPinColor(spot: CleanupSpot): string {
@@ -62,16 +73,25 @@ export function CleanupMap({
   onCancelPickMode,
   onLocateUser,
   focusTarget,
+  searchedSuburbPin = null,
+  onLocateSuburb,
+  onReportAtSearchedSuburb,
 }: CleanupMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const suburbLayerRef = useRef<L.LayerGroup | null>(null);
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
   const pickedLayerRef = useRef<L.LayerGroup | null>(null);
   const pickModeRef = useRef(pickLocationMode);
   const onPickRef = useRef(onMapPickLocation);
+  const searchBoxRef = useRef<HTMLDivElement | null>(null);
   const [tileMode, setTileMode] = useState<'street' | 'osm' | 'topo'>('street');
+  const [suburbInput, setSuburbInput] = useState('');
+  const [suburbSuggestions, setSuburbSuggestions] = useState<SearchedSuburbPin[]>([]);
+  const [searchingSuburb, setSearchingSuburb] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   pickModeRef.current = pickLocationMode;
   onPickRef.current = onMapPickLocation;
@@ -89,6 +109,7 @@ export function CleanupMap({
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
     markersLayerRef.current = L.layerGroup().addTo(map);
+    suburbLayerRef.current = L.layerGroup().addTo(map);
     routeLayerRef.current = L.layerGroup().addTo(map);
     pickedLayerRef.current = L.layerGroup().addTo(map);
 
@@ -271,6 +292,122 @@ export function CleanupMap({
     }
   }, [route, userOrigin]);
 
+  // Render searched suburb focus area & marker on the map
+  useEffect(() => {
+    const layer = suburbLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+    if (!searchedSuburbPin) return;
+
+    L.circle([searchedSuburbPin.lat, searchedSuburbPin.lng], {
+      radius: 650,
+      color: '#3D634A',
+      weight: 2,
+      dashArray: '6 5',
+      fillColor: '#3D634A',
+      fillOpacity: 0.12,
+    }).addTo(layer);
+
+    const icon = L.divIcon({
+      className: 'cleancommons-pin',
+      html: `
+        <svg width="34" height="42" viewBox="0 0 34 42" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M17 40C17 40 30 26.2 30 16C30 8.8203 24.1797 3 17 3C9.8203 3 4 8.8203 4 16C4 26.2 17 40 17 40Z" fill="#3D634A" stroke="#FFFFFF" stroke-width="2.5"/>
+          <circle cx="17" cy="16" r="5" fill="#F2F0C9"/>
+        </svg>
+      `,
+      iconSize: [34, 42],
+      iconAnchor: [17, 40],
+      tooltipAnchor: [0, -34],
+    });
+
+    const marker = L.marker([searchedSuburbPin.lat, searchedSuburbPin.lng], {
+      icon,
+      zIndexOffset: 450,
+    });
+    marker.bindTooltip(searchedSuburbPin.label, {
+      permanent: true,
+      direction: 'top',
+      opacity: 0.96,
+    });
+    marker.addTo(layer);
+  }, [searchedSuburbPin]);
+
+  // Close suburb dropdown on outside click
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [dropdownOpen]);
+
+  // Debounced live suburb autocomplete suggestions
+  useEffect(() => {
+    const q = suburbInput.trim();
+    if (q.length < 2) {
+      setSuburbSuggestions([]);
+      setSearchingSuburb(false);
+      return;
+    }
+
+    const qLower = q.toLowerCase();
+    const localMatches: SearchedSuburbPin[] = [];
+    const seenLabels = new Set<string>();
+    for (const s of spots) {
+      const hay = `${s.neighborhood} ${s.address} ${s.title}`.toLowerCase();
+      if (hay.includes(qLower) && !seenLabels.has(s.neighborhood.toLowerCase())) {
+        seenLabels.add(s.neighborhood.toLowerCase());
+        localMatches.push({
+          lat: s.lat,
+          lng: s.lng,
+          label: s.neighborhood,
+          displayName: `${s.neighborhood} — ${s.title}`,
+        });
+      }
+    }
+    setSuburbSuggestions(localMatches.slice(0, 4));
+
+    let cancelled = false;
+    setSearchingSuburb(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const remote: GeocodeResult[] = await api.searchAddress(q);
+        if (cancelled) return;
+        const remotePins: SearchedSuburbPin[] = remote.map((r) => ({
+          lat: r.lat,
+          lng: r.lng,
+          label: r.neighborhood && r.neighborhood !== 'Local Area' ? r.neighborhood : q,
+          displayName: r.displayName,
+        }));
+        const merged = [...localMatches];
+        for (const pin of remotePins) {
+          if (
+            !merged.some(
+              (m) =>
+                Math.abs(m.lat - pin.lat) < 0.005 && Math.abs(m.lng - pin.lng) < 0.005
+            )
+          ) {
+            merged.push(pin);
+          }
+        }
+        setSuburbSuggestions(merged.slice(0, 6));
+      } catch {
+        // Keep local matches on geocode failure
+      } finally {
+        if (!cancelled) setSearchingSuburb(false);
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [suburbInput, spots]);
+
   // Pan map when focusTarget changes
   useEffect(() => {
     const map = mapRef.current;
@@ -279,6 +416,40 @@ export function CleanupMap({
       duration: 0.55,
     });
   }, [focusTarget]);
+
+  const handleSelectSuburbPin = (pin: SearchedSuburbPin) => {
+    setSuburbInput(pin.label);
+    setDropdownOpen(false);
+    onLocateSuburb?.(pin);
+    mapRef.current?.flyTo([pin.lat, pin.lng], 14, { duration: 0.55 });
+  };
+
+  const handleSubmitSuburbSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = suburbInput.trim();
+    if (q.length < 2) return;
+
+    if (suburbSuggestions.length > 0) {
+      handleSelectSuburbPin(suburbSuggestions[0]);
+      return;
+    }
+
+    setSearchingSuburb(true);
+    try {
+      const results = await api.searchAddress(q);
+      if (results.length > 0) {
+        const first = results[0];
+        handleSelectSuburbPin({
+          lat: first.lat,
+          lng: first.lng,
+          label: first.neighborhood && first.neighborhood !== 'Local Area' ? first.neighborhood : q,
+          displayName: first.displayName,
+        });
+      }
+    } finally {
+      setSearchingSuburb(false);
+    }
+  };
 
   const handleFitAllSpots = () => {
     const map = mapRef.current;
@@ -304,37 +475,145 @@ export function CleanupMap({
     <div className="relative w-full h-full min-h-[320px] bg-slate-200 overflow-hidden">
       <div ref={containerRef} className="absolute inset-0" />
 
-      {/* Top map controls */}
-      <div className="absolute top-4 right-4 z-[450] flex items-center gap-2">
-        <button
-          type="button"
-          onClick={cycleTileMode}
-          className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 rounded-lg shadow-sm text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer transition-colors"
-          title="Switch map layer"
-        >
-          <Layers className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
-          <span>{tileLabel}</span>
-        </button>
+      {/* Top map overlay: Suburb Search (left) + Map Controls (right) */}
+      <div className="absolute top-3 inset-x-3 sm:top-4 sm:inset-x-4 z-[450] flex flex-col md:flex-row md:items-start md:justify-between gap-2 pointer-events-none">
+        {/* Suburb search bar on map */}
+        <div ref={searchBoxRef} className="relative w-full md:w-80 pointer-events-auto">
+          <form
+            onSubmit={handleSubmitSuburbSearch}
+            className="flex items-center bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden focus-within:border-[#3D634A]"
+          >
+            <Search
+              className="w-4 h-4 text-slate-400 ml-3 shrink-0 pointer-events-none"
+              aria-hidden="true"
+            />
+            <input
+              type="text"
+              value={suburbInput}
+              onFocus={() => setDropdownOpen(true)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSuburbInput(val);
+                setDropdownOpen(true);
+                if (!val.trim() && searchedSuburbPin) {
+                  onLocateSuburb?.(null);
+                }
+              }}
+              placeholder="Type a suburb to show on map..."
+              aria-label="Type a suburb to show on map"
+              className="flex-1 min-w-0 px-2.5 py-2 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 bg-transparent focus:outline-none"
+            />
+            {(suburbInput || searchedSuburbPin) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSuburbInput('');
+                  setSuburbSuggestions([]);
+                  setDropdownOpen(false);
+                  onLocateSuburb?.(null);
+                }}
+                aria-label="Clear suburb search"
+                className="p-1.5 text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={searchingSuburb || suburbInput.trim().length < 2}
+              className="px-3 py-2 text-xs font-semibold bg-[#3D634A] hover:bg-[#32523D] disabled:opacity-50 text-white cursor-pointer shrink-0 transition-colors"
+            >
+              {searchingSuburb ? '...' : 'Go'}
+            </button>
+          </form>
 
-        <button
-          type="button"
-          onClick={onLocateUser}
-          className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 rounded-lg shadow-sm text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer transition-colors"
-          title="Use my current location"
-        >
-          <LocateFixed className="w-3.5 h-3.5 text-emerald-700" aria-hidden="true" />
-          <span>My Location</span>
-        </button>
+          {dropdownOpen && suburbInput.trim().length >= 2 && (
+            <div className="mt-1.5 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden max-h-56 overflow-y-auto divide-y divide-slate-100">
+              {suburbSuggestions.length === 0 ? (
+                <div className="px-3 py-2.5 text-xs text-slate-500">
+                  {searchingSuburb
+                    ? 'Searching South African suburbs...'
+                    : 'No matching suburb found — press Go to retry'}
+                </div>
+              ) : (
+                suburbSuggestions.map((item, idx) => (
+                  <button
+                    key={`${item.lat}-${item.lng}-${idx}`}
+                    type="button"
+                    onClick={() => handleSelectSuburbPin(item)}
+                    className="w-full px-3 py-2 text-left hover:bg-emerald-50/70 transition-colors flex items-start gap-2 cursor-pointer"
+                  >
+                    <MapPin
+                      className="w-3.5 h-3.5 text-[#3D634A] mt-0.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-900 truncate">{item.label}</p>
+                      <p className="text-[11px] text-slate-500 truncate">{item.displayName}</p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
 
-        <button
-          type="button"
-          onClick={handleFitAllSpots}
-          className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 rounded-lg shadow-sm text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer transition-colors"
-          title="Fit all reported spots in view"
-        >
-          <Crosshair className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
-          <span>Fit Spots</span>
-        </button>
+          {searchedSuburbPin && !dropdownOpen && (
+            <div className="mt-1.5 bg-white/95 backdrop-blur-xs border border-[#3D634A]/25 rounded-xl shadow-sm px-3 py-2 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-900 truncate">
+                  {searchedSuburbPin.label}
+                </p>
+                <p className="text-[11px] text-slate-500 truncate">
+                  {searchedSuburbPin.displayName}
+                </p>
+              </div>
+              {onReportAtSearchedSuburb && (
+                <button
+                  type="button"
+                  onClick={() => onReportAtSearchedSuburb(searchedSuburbPin)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold text-white bg-[#3D634A] hover:bg-[#32523D] rounded-lg shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" aria-hidden="true" />
+                  <span>Report Here</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Map layer, locate & fit controls */}
+        <div className="flex items-center justify-end gap-1.5 sm:gap-2 pointer-events-auto self-end md:self-auto">
+          <button
+            type="button"
+            onClick={cycleTileMode}
+            className="flex items-center gap-1.5 px-2.5 py-2 sm:px-3 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 rounded-lg shadow-sm text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+            title="Switch map layer"
+          >
+            <Layers className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
+            <span>{tileLabel}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onLocateUser}
+            className="flex items-center gap-1.5 px-2.5 py-2 sm:px-3 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 rounded-lg shadow-sm text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+            title="Use my current location"
+          >
+            <LocateFixed className="w-3.5 h-3.5 text-emerald-700" aria-hidden="true" />
+            <span className="hidden xs:inline sm:inline">My Location</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleFitAllSpots}
+            className="flex items-center gap-1.5 px-2.5 py-2 sm:px-3 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 rounded-lg shadow-sm text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+            title="Fit all reported spots in view"
+            aria-label="Fit all reported spots in view"
+          >
+            <Crosshair className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
+            <span className="hidden sm:inline">Fit Spots</span>
+          </button>
+        </div>
       </div>
 
       {/* Compact legend at bottom left */}

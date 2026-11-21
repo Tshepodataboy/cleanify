@@ -122,13 +122,19 @@ export function ProvinceLocationFilter({
       )}
 
       {open && (
-        <div
-          role="dialog"
-          aria-label="Filter by South African province, city, and suburb"
-          className={`absolute top-full mt-2 z-50 w-[330px] sm:w-[376px] bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden ${
-            align === 'right' ? 'right-0' : 'left-0'
-          }`}
-        >
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-slate-900/35 sm:hidden"
+            aria-hidden="true"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            role="dialog"
+            aria-label="Filter by South African province, city, and suburb"
+            className={`fixed inset-x-3 bottom-3 z-50 sm:inset-auto sm:top-full sm:mt-2 sm:w-[376px] bg-white border border-slate-200 rounded-xl shadow-2xl sm:shadow-xl overflow-hidden ${
+              align === 'right' ? 'sm:right-0' : 'sm:left-0'
+            }`}
+          >
           <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-2 bg-slate-50">
             <div>
               <p className="text-xs font-semibold text-slate-900">
@@ -348,12 +354,13 @@ export function ProvinceLocationFilter({
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="px-3 py-1 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-md cursor-pointer"
+              className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-md cursor-pointer"
             >
               Done
             </button>
           </div>
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

@@ -1,5 +1,6 @@
-import { Search, ThumbsUp } from 'lucide-react';
+import { MapPin, Plus, Search, ThumbsUp } from 'lucide-react';
 import type { CleanupSpot, SpotStatus } from '../types';
+import type { SearchedSuburbPin } from './CleanupMap';
 import { ResilientImage } from './ResilientImage';
 import {
   ProvinceLocationFilter,
@@ -35,6 +36,9 @@ interface SpotListPanelProps {
   onSelectSpot: (spot: CleanupSpot) => void;
   onUpvoteSpot: (spotId: string) => void;
   onOpenReportModal: () => void;
+  searchedSuburbPin?: SearchedSuburbPin | null;
+  onViewSearchedSuburbOnMap?: () => void;
+  onReportAtSearchedSuburb?: (loc: SearchedSuburbPin) => void;
   loading: boolean;
 }
 
@@ -58,6 +62,9 @@ export function SpotListPanel({
   onSelectSpot,
   onUpvoteSpot,
   onOpenReportModal,
+  searchedSuburbPin = null,
+  onViewSearchedSuburbOnMap,
+  onReportAtSearchedSuburb,
   loading,
 }: SpotListPanelProps) {
   const filters: { id: 'all' | SpotStatus; label: string }[] = [
@@ -68,7 +75,7 @@ export function SpotListPanel({
   ];
 
   return (
-    <aside className="w-full lg:w-[400px] xl:w-[420px] bg-white border-r border-slate-200 flex flex-col h-full shrink-0">
+    <aside className="w-full lg:w-[400px] xl:w-[420px] bg-white lg:border-r border-slate-200 flex flex-col h-full shrink-0">
       <div className="p-4 border-b border-slate-200 space-y-3">
         <div className="flex items-baseline justify-between gap-2">
           <h1 className="font-display text-base font-semibold text-slate-900">
@@ -134,8 +141,45 @@ export function SpotListPanel({
         </div>
       </div>
 
-      {/* Scrollable spots list */}
+        {/* Scrollable spots list */}
       <div className="flex-1 overflow-y-auto divide-y divide-slate-200">
+        {searchedSuburbPin && (
+          <div className="px-4 py-3 bg-emerald-50/80 border-b border-emerald-200 flex items-center justify-between gap-3">
+            <div className="flex items-start gap-2 min-w-0">
+              <MapPin className="w-4 h-4 text-[#3D634A] mt-0.5 shrink-0" aria-hidden="true" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-900 truncate">
+                  {searchedSuburbPin.label}
+                </p>
+                <p className="text-[11px] text-slate-600 truncate">
+                  Shown on map · {searchedSuburbPin.displayName}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {onViewSearchedSuburbOnMap && (
+                <button
+                  type="button"
+                  onClick={onViewSearchedSuburbOnMap}
+                  className="lg:hidden px-2.5 py-1.5 text-[11px] font-semibold text-[#24412E] bg-white border border-emerald-300 rounded-lg cursor-pointer"
+                >
+                  View Map
+                </button>
+              )}
+              {onReportAtSearchedSuburb && (
+                <button
+                  type="button"
+                  onClick={() => onReportAtSearchedSuburb(searchedSuburbPin)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold text-white bg-[#3D634A] hover:bg-[#32523D] rounded-lg cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" aria-hidden="true" />
+                  <span>Report Here</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="p-4 space-y-4">
             {[1, 2, 3].map((idx) => (
@@ -153,7 +197,9 @@ export function SpotListPanel({
           <div className="p-8 text-center space-y-3">
             <p className="text-sm font-medium text-slate-900">No cleanup spots match this filter</p>
             <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
-              Clear your province, location, or search filter, or report a new litter hotspot with a photo and map pin.
+              {searchedSuburbPin
+                ? `We centered the map on ${searchedSuburbPin.label}. You can report the first cleanup spot in this suburb or reset your filter.`
+                : 'Clear your province, location, or search filter, or report a new litter hotspot with a photo and map pin.'}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-2">
               {(provinceFilter !== 'all' ||
@@ -175,10 +221,14 @@ export function SpotListPanel({
               )}
               <button
                 type="button"
-                onClick={onOpenReportModal}
+                onClick={() =>
+                  searchedSuburbPin && onReportAtSearchedSuburb
+                    ? onReportAtSearchedSuburb(searchedSuburbPin)
+                    : onOpenReportModal()
+                }
                 className="px-4 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors cursor-pointer"
               >
-                Report New Spot
+                {searchedSuburbPin ? `Report in ${searchedSuburbPin.label}` : 'Report New Spot'}
               </button>
             </div>
           </div>

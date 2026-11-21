@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
-import type { CleanupSpot } from '../types';
+import { MapPin, Search, X } from 'lucide-react';
+import type { CleanupSpot, GeocodeResult } from '../types';
+import { api } from '../api/client';
 
 const SUPPLIES = [
   'Heavy-Duty Bags',
@@ -30,6 +31,7 @@ interface CreateEventModalProps {
     suppliesProvided: string[];
     maxVolunteers: number;
     bannerUrl?: string;
+    reporterPasscode?: string;
   }) => Promise<void>;
 }
 
@@ -61,6 +63,10 @@ export function CreateEventModal({
     }
   });
   const [supplies, setSupplies] = useState<string[]>(['Heavy-Duty Bags', 'Work Gloves']);
+  const [reporterPasscode, setReporterPasscode] = useState('');
+  const [geoMatches, setGeoMatches] = useState<GeocodeResult[]>([]);
+  const [locatingSuburb, setLocatingSuburb] = useState(false);
+  const [coordsPinnedLabel, setCoordsPinnedLabel] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,6 +106,25 @@ export function CreateEventModal({
     );
   };
 
+  const handleLocateSuburb = async () => {
+    const q = locationName.trim();
+    if (q.length < 2) return;
+    setLocatingSuburb(true);
+    try {
+      const results = await api.searchAddress(q);
+      setGeoMatches(results);
+      if (results.length > 0) {
+        setLat(results[0].lat);
+        setLng(results[0].lng);
+        setCoordsPinnedLabel(results[0].displayName);
+      }
+    } catch {
+      setGeoMatches([]);
+    } finally {
+      setLocatingSuburb(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -117,6 +142,26 @@ export function CreateEventModal({
 
     const linkedSpot = spots.find((s) => s.id === spotId);
 
+    let resolvedLat = lat;
+    let resolvedLng = lng;
+    if (!spotId && locationName.trim().length >= 2 && !coordsPinnedLabel) {
+      try {
+        const matches = await api.searchAddress(locationName.trim());
+        if (matches.length > 0) {
+          resolvedLat = matches[0].lat;
+          resolvedLng = matches[0].lng;
+        }
+      } catch {
+        // Keep existing coordinates if geocode fails
+      }
+    }
+
+    const trimmedPasscode = reporterPasscode.trim();
+    if (trimmedPasscode && trimmedPasscode.length < 4) {
+      setError('Private passcode must be at least 4 characters (or leave blank to claim later).');
+      return;
+    }
+
     setSubmitting(true);
     try {
       await onCreateEvent({
@@ -125,8 +170,8 @@ export function CreateEventModal({
         description: description.trim(),
         locationName: locationName.trim() || 'Neighborhood Park',
         meetingPoint: meetingPoint.trim() || 'Main trail entrance',
-        lat,
-        lng,
+        lat: resolvedLat,
+        lng: resolvedLng,
         date,
         startTime,
         durationHours: Math.max(0.5, Number(durationHours) || 2),
@@ -134,9 +179,11 @@ export function CreateEventModal({
         suppliesProvided: supplies,
         maxVolunteers: Math.max(2, Number(maxVolunteers) || 15),
         bannerUrl: linkedSpot?.photoUrl,
+        reporterPasscode: trimmedPasscode || undefined,
       });
       setTitle('');
       setDescription('');
+      setReporterPasscode('');
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to post event.');
@@ -149,12 +196,12 @@ export function CreateEventModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="create-event-heading"
     >
-      <div className="bg-white border border-slate-200 rounded-xl shadow-xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl shadow-xl w-full max-w-xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4">
           <div>
             <h2 id="create-event-heading" className="font-display text-lg font-semibold text-slate-900">
@@ -219,22 +266,67 @@ export function CreateEventModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="event-neighborhood" className="block text-xs font-semibold text-slate-800 mb-1">
-                Neighborhood / Park
+                Suburb / Neighborhood
               </label>
-              <input
-                id="event-neighborhood"
-                type="text"
-                required
-                value={locationName}
-                onChange={(e) => setLocationName(e.target.value)}
-                placeholder="Emmarentia, Johannesburg"
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-700"
-              />
+              <div className="flex gap-1.5">
+                <input
+                  id="event-neighborhood"
+                  type="text"
+                  required
+                  value={locationName}
+                  onChange={(e) => {
+                    setLocationName(e.target.value);
+                    setCoordsPinnedLabel('');
+                  }}
+                  placeholder="Emmarentia, Johannesburg"
+                  className="flex-1 min-w-0 px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-700"
+                />
+                <button
+                  type="button"
+                  onClick={handleLocateSuburb}
+                  disabled={locatingSuburb || locationName.trim().length < 2}
+                  title="Find suburb on map"
+                  className="px-2.5 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg cursor-pointer shrink-0 flex items-center gap-1"
+                >
+                  <Search className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>{locatingSuburb ? '...' : 'Pin'}</span>
+                </button>
+              </div>
+              {coordsPinnedLabel && (
+                <p className="mt-1 text-[11px] text-emerald-700 flex items-center gap-1 truncate">
+                  <MapPin className="w-3 h-3 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{coordsPinnedLabel}</span>
+                </p>
+              )}
+              {geoMatches.length > 1 && (
+                <div className="mt-1 border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-28 overflow-y-auto bg-white">
+                  {geoMatches.slice(0, 4).map((m, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        setLat(m.lat);
+                        setLng(m.lng);
+                        setLocationName(
+                          m.neighborhood && m.neighborhood !== 'Local Area'
+                            ? m.neighborhood
+                            : locationName
+                        );
+                        setCoordsPinnedLabel(m.displayName);
+                        setGeoMatches([]);
+                      }}
+                      className="w-full px-2.5 py-1.5 text-left text-[11px] text-slate-700 hover:bg-slate-50 truncate cursor-pointer"
+                    >
+                      {m.displayName}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div>
               <label htmlFor="event-organizer" className="block text-xs font-semibold text-slate-800 mb-1">
-                Organizer Name
+                Organizer / Reporter Name
               </label>
               <input
                 id="event-organizer"
@@ -242,6 +334,25 @@ export function CreateEventModal({
                 value={organizer}
                 onChange={(e) => setOrganizer(e.target.value)}
                 placeholder="Thabo Mokoena"
+                className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-700"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label
+                htmlFor="event-reporter-passcode"
+                className="block text-xs font-semibold text-slate-800 mb-1"
+              >
+                Private Roster Passcode (volunteer names stay hidden from public visitors)
+              </label>
+              <input
+                id="event-reporter-passcode"
+                type="password"
+                autoComplete="new-password"
+                maxLength={100}
+                value={reporterPasscode}
+                onChange={(e) => setReporterPasscode(e.target.value)}
+                placeholder="4+ characters to keep volunteer roster private to you"
                 className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-700"
               />
             </div>

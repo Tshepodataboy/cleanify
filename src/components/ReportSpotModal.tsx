@@ -29,6 +29,7 @@ interface ReportSpotModalProps {
     wasteTypes: string[];
     photoUrl: string;
     reportedBy: string;
+    reporterPasscode?: string;
   }) => Promise<void>;
 }
 
@@ -56,6 +57,7 @@ export function ReportSpotModal({
       return '';
     }
   });
+  const [reporterPasscode, setReporterPasscode] = useState('');
   const [searchResults, setSearchResults] = useState<GeocodeResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [locating, setLocating] = useState(false);
@@ -154,6 +156,12 @@ export function ReportSpotModal({
       // Ignore storage failures
     }
 
+    const trimmedPasscode = reporterPasscode.trim();
+    if (trimmedPasscode && trimmedPasscode.length < 4) {
+      setError('Reporter passcode must be at least 4 characters (or leave blank to set later).');
+      return;
+    }
+
     setSubmitting(true);
     try {
       await onSubmitSpot({
@@ -167,10 +175,12 @@ export function ReportSpotModal({
         wasteTypes: wasteTypes.length > 0 ? wasteTypes : ['Plastics'],
         photoUrl: photoUrl || '/src/assets/images/spot_riverbank_plastics_1795254462665.jpg',
         reportedBy: author,
+        reporterPasscode: trimmedPasscode || undefined,
       });
       setTitle('');
       setDescription('');
       setPhotoUrl('');
+      setReporterPasscode('');
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to submit report.');
@@ -181,12 +191,12 @@ export function ReportSpotModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="report-spot-heading"
     >
-      <div className="bg-white border border-slate-200 rounded-xl shadow-xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl shadow-xl w-full max-w-xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4">
           <div>
             <h2 id="report-spot-heading" className="font-display text-lg font-semibold text-slate-900">
@@ -408,6 +418,25 @@ export function ReportSpotModal({
                 value={reportedBy}
                 onChange={(e) => setReportedBy(e.target.value)}
                 placeholder="Thabo Mokoena"
+                className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-700"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label
+                htmlFor="spot-reporter-passcode"
+                className="block text-xs font-semibold text-slate-800 mb-1"
+              >
+                Private Reporter Passcode (keeps volunteer lists visible only to you)
+              </label>
+              <input
+                id="spot-reporter-passcode"
+                type="password"
+                autoComplete="new-password"
+                maxLength={100}
+                value={reporterPasscode}
+                onChange={(e) => setReporterPasscode(e.target.value)}
+                placeholder="4+ characters to unlock future cleanup rosters"
                 className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-700"
               />
             </div>

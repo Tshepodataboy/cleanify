@@ -7,10 +7,12 @@ import {
   ChevronUp,
   Navigation,
   RotateCcw,
+  ShieldCheck,
   ThumbsUp,
+  Trash2,
   X,
 } from 'lucide-react';
-import type { CleanupEvent, CleanupSpot, RouteProfile, RouteResult } from '../types';
+import type { AuthUser, CleanupEvent, CleanupSpot, RouteProfile, RouteResult } from '../types';
 import { ResilientImage } from './ResilientImage';
 import { compressImageFile } from '../utils/imageCompress';
 import { inferSouthAfricanLocation } from '../utils/southAfrica';
@@ -28,6 +30,7 @@ import {
 interface SpotDetailDrawerProps {
   spot: CleanupSpot;
   linkedEvents: CleanupEvent[];
+  currentUser: AuthUser | null;
   route: RouteResult | null;
   routeLoading: boolean;
   routeError: string | null;
@@ -35,6 +38,7 @@ interface SpotDetailDrawerProps {
   onUpvote: (spotId: string) => void;
   onRequestRoute: (spot: CleanupSpot, profile: RouteProfile) => void;
   onClearRoute: () => void;
+  onViewRouteOnMap?: () => void;
   onHostEventForSpot: (spot: CleanupSpot) => void;
   onViewEventOnBoard: (eventId: string) => void;
   onUpdateStatus: (
@@ -43,11 +47,14 @@ interface SpotDetailDrawerProps {
     afterPhotoUrl?: string,
     bagsCollected?: number
   ) => Promise<void>;
+  onDeleteSpot: (spotId: string) => Promise<void>;
+  onRequireAuth: (reason: string) => void;
 }
 
 export function SpotDetailDrawer({
   spot,
   linkedEvents,
+  currentUser,
   route,
   routeLoading,
   routeError,
@@ -55,9 +62,12 @@ export function SpotDetailDrawer({
   onUpvote,
   onRequestRoute,
   onClearRoute,
+  onViewRouteOnMap,
   onHostEventForSpot,
   onViewEventOnBoard,
   onUpdateStatus,
+  onDeleteSpot,
+  onRequireAuth,
 }: SpotDetailDrawerProps) {
   const [profile, setProfile] = useState<RouteProfile>('foot');
   const [stepsExpanded, setStepsExpanded] = useState(false);
@@ -69,6 +79,9 @@ export function SpotDetailDrawer({
   const [afterPhotoUrl, setAfterPhotoUrl] = useState('');
   const [submittingClean, setSubmittingClean] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [rlsError, setRlsError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const displayedPhoto =
     photoView === 'after' && spot.afterPhotoUrl ? spot.afterPhotoUrl : spot.photoUrl;
@@ -86,6 +99,7 @@ export function SpotDetailDrawer({
 
   const handleConfirmCleaned = async (e: React.FormEvent) => {
     e.preventDefault();
+    setRlsError(null);
     setSubmittingClean(true);
     try {
       await onUpdateStatus(
@@ -96,15 +110,28 @@ export function SpotDetailDrawer({
       );
       setShowCompleteForm(false);
       if (afterPhotoUrl) setPhotoView('after');
+    } catch (err) {
+      setRlsError(err instanceof Error ? err.message : 'Unable to update spot status.');
     } finally {
       setSubmittingClean(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    setRlsError(null);
+    setDeleting(true);
+    try {
+      await onDeleteSpot(spot.id);
+    } catch (err) {
+      setRlsError(err instanceof Error ? err.message : 'Unable to delete spot.');
+      setDeleting(false);
     }
   };
 
   return (
     <section
       aria-label={`Details for ${spot.title}`}
-      className="w-full sm:w-[400px] bg-white border-l border-slate-200 flex flex-col h-full shrink-0 shadow-lg z-20"
+      className="w-full lg:w-[400px] bg-white lg:border-l border-slate-200 flex flex-col h-full shrink-0 shadow-lg z-20"
     >
       {/* Header */}
       <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-3">
@@ -204,46 +231,121 @@ export function SpotDetailDrawer({
         </div>
 
         {/* Community Support & Primary Actions */}
-        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-200">
-          <button
-            type="button"
-            onClick={() => onUpvote(spot.id)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer tabular-nums"
-          >
-            <ThumbsUp className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Priority Vote ({spot.upvotes})</span>
-          </button>
-
-          {spot.status !== 'cleaned' && (
+        <div className="space-y-3 pt-1 border-t border-slate-200">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => onHostEventForSpot(spot)}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors cursor-pointer"
+              onClick={() => onUpvote(spot.id)}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer tabular-nums"
             >
-              <CalendarPlus className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>Organize Cleanup</span>
+              <ThumbsUp className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Priority Vote ({spot.upvotes})</span>
             </button>
+
+            {spot.status !== 'cleaned' && (
+              <button
+                type="button"
+                onClick={() => onHostEventForSpot(spot)}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors cursor-pointer"
+              >
+                <CalendarPlus className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Organize Cleanup</span>
+              </button>
+            )}
+
+            {spot.isOwner && (
+              <>
+                {spot.status !== 'cleaned' ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowCompleteForm((prev) => !prev)}
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Mark Cleaned</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setRlsError(null);
+                      try {
+                        await onUpdateStatus(spot.id, 'needs_cleanup');
+                      } catch (err) {
+                        setRlsError(err instanceof Error ? err.message : 'Unable to reopen spot.');
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Reopen Spot</span>
+                  </button>
+                )}
+
+                {!confirmDelete ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(true)}
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Delete</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+                    <span className="text-[11px] font-medium text-red-800">Delete spot?</span>
+                    <button
+                      type="button"
+                      disabled={deleting}
+                      onClick={handleConfirmDelete}
+                      className="px-2 py-0.5 text-[11px] font-semibold text-white bg-red-700 hover:bg-red-800 rounded cursor-pointer disabled:opacity-60"
+                    >
+                      {deleting ? '...' : 'Confirm'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(false)}
+                      className="px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {rlsError && (
+            <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800">
+              {rlsError}
+            </div>
           )}
 
-          {spot.status !== 'cleaned' ? (
-            <button
-              type="button"
-              onClick={() => setShowCompleteForm((prev) => !prev)}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>Mark Cleaned</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => onUpdateStatus(spot.id, 'needs_cleanup')}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>Reopen Spot</span>
-            </button>
-          )}
+          {/* Row-Level Security status bar */}
+          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-600">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <ShieldCheck
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  spot.isOwner ? 'text-emerald-700' : 'text-slate-400'
+                }`}
+                aria-hidden="true"
+              />
+              <span className="truncate">
+                {spot.isOwner
+                  ? 'Row-Level Security: You own this report'
+                  : `Row-Level Security: Only ${spot.reportedBy} can edit or delete`}
+              </span>
+            </div>
+            {!currentUser && (
+              <button
+                type="button"
+                onClick={() => onRequireAuth('Sign in to manage spots you reported.')}
+                className="font-semibold text-emerald-700 hover:text-emerald-800 shrink-0 cursor-pointer"
+              >
+                Sign in
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Mark Cleaned Form */}
@@ -374,6 +476,16 @@ export function SpotDetailDrawer({
                 </span>
               </div>
 
+              {onViewRouteOnMap && (
+                <button
+                  type="button"
+                  onClick={onViewRouteOnMap}
+                  className="lg:hidden w-full py-2 px-3 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg cursor-pointer transition-colors"
+                >
+                  View Route on Full Map
+                </button>
+              )}
+
               {route.steps.length > 0 && (
                 <div>
                   <button
@@ -431,8 +543,8 @@ export function SpotDetailDrawer({
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-slate-900 truncate">{ev.title}</p>
                     <p className="text-xs text-slate-500 truncate mt-0.5 tabular-nums">
-                      {formatEventDate(ev.date, ev.startTime)} · {ev.volunteers.length}/
-                      {ev.maxVolunteers} volunteers
+                      {formatEventDate(ev.date, ev.startTime)} ·{' '}
+                      {ev.volunteerCount ?? ev.volunteers.length}/{ev.maxVolunteers} volunteers
                     </p>
                   </div>
                   <button
