@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    color: #0f172a;
+    background-color: #f8fafc;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Leaflet map refinements to align with CleanCommons surface hierarchy */
+.leaflet-container {
+  font-family: var(--font-sans);
+  background-color: #e2e8f0;
+  z-index: 1;
+}
+
+.leaflet-control-attribution {
+  font-size: 11px !important;
+  background: rgba(255, 255, 255, 0.88) !important;
+  color: #475569 !important;
+  padding: 2px 6px !important;
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 10px !important;
+  box-shadow: 0 10px 25px -5px rgb(15 23 42 / 0.14), 0 4px 10px -6px rgb(15 23 42 / 0.08) !important;
+  border: 1px solid #e2e8f0;
+  padding: 0 !important;
+}
+
+.leaflet-popup-content {
+  margin: 0 !important;
+  min-width: 220px;
+}
+
+.cleancommons-pin {
+  background: transparent;
+  border: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

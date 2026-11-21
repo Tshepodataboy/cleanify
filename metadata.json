@@ -1,0 +1,6 @@
+{
+  "name": "CleanCommons",
+  "description": "Community cleanup map, photo reporting, free route directions, and neighborhood cleanup event board.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
